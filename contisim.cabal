@@ -15,6 +15,14 @@ Executable example
     base >= 4,
     numeric-prelude >= 0.3
 
+Executable selfexample
+  Main-is:		SelfContainedExample.hs
+  Hs-Source-Dirs:	src
+  GHC-Options:		-Wall -O2
+  Build-Depends:
+    base >= 4,
+    numeric-prelude >= 0.3
+
 Library
   Hs-Source-Dirs:	lib
   GHC-Options:		-Wall -O2
