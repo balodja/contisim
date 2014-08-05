@@ -1,0 +1,27 @@
+Name:			contisim
+Version:		0.1
+Description:		Simple arrow-style Haskell library for continuous simulation
+Author:			Vladimir Koroljov
+Maintainer:		balodja@gmail.com
+Build-Type:		Simple
+Cabal-Version:		>= 1.8
+
+Executable example
+  Main-is:		Example.hs
+  Hs-Source-Dirs:	src
+  GHC-Options:		-Wall -O2
+  Build-Depends:
+    contisim,
+    base >= 4,
+    numeric-prelude >= 0.3
+
+Library
+  Hs-Source-Dirs:	lib
+  GHC-Options:		-Wall -O2
+  Exposed-Modules:
+    Simulation.Continuous,
+    Simulation.Continuous.Base,
+    Simulation.Continuous.Signal
+  Build-Depends:
+    base >= 4,
+    numeric-prelude >= 0.3
