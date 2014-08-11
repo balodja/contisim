@@ -146,10 +146,25 @@ newtype IEU1 v = IEU1 [v] deriving (Show, Read, Eq, Functor, Applicative)
 instance Signal IEU1
 
 instance Integrable IEU1 where
-  integrate dt (IEU1 xs') x0 = let xs = x0 : fmap (\x' -> x0 + dt *> x') xs' in (IEU1 xs, xs !! 10)
+  integrate dt (IEU1 xs') x0 =
+    let xs = x0 : fmap (\x' -> x0 + dt *> x') xs' in (IEU1 xs, xs !! 2)
 
 instance Extractable IEU1 where
   extractS (IEU1 xs) = head xs
+
+-- Signal data with implicit Euler method.
+
+newtype IMEU1 v = IMEU1 [v] deriving (Show, Read, Eq, Functor, Applicative)
+
+instance Signal IMEU1
+
+instance Integrable IMEU1 where
+  integrate dt (IMEU1 xs') x0 =
+    let xs = x0 : fmap (\x' -> x0 + (dt / fromRational' 2) *> x') xs'
+    in (IMEU1 xs, x0 + dt *> (xs' !! 3))
+
+instance Extractable IMEU1 where
+  extractS (IMEU1 xs) = head xs
 
 -- Signal data with Runge-Kutta integration, with instances.
 
@@ -210,8 +225,9 @@ runIt step n block =
       outputRK = simTrace step input block :: [RK4 a]
       outputEU = simTrace step input block :: [EU1 a]
       outputIEU = simTrace step input block :: [IEU1 a]
+      outputIMEU = simTrace step input block :: [IMEU1 a]
       times = map (* step) [0, 1 ..] :: [Double]
-  in take (succ n) $ zip times $ transpose [(map extractS outputEU), (map extractS outputRK), (map extractS outputIEU)]
+  in take (succ n) $ zip times $ transpose [(map extractS outputEU), (map extractS outputRK), (map extractS outputIEU), (map extractS outputIMEU)]
 
 -- Show the results of the run
 
