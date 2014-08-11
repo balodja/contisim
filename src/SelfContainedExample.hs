@@ -1,8 +1,11 @@
 {-# LANGUAGE NoImplicitPrelude, BangPatterns, ExistentialQuantification #-}
 {-# LANGUAGE NoImplicitPrelude, Arrows, IncoherentInstances, Rank2Types #-}
 {-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing -fno-warn-orphans #-}
 import NumericPrelude
+import Data.List (transpose)
 import Control.Arrow
 import Control.Applicative (Applicative, pure, (<*>), liftA, liftA2)
 import qualified Control.Category as Cat
@@ -136,6 +139,17 @@ instance Integrable EU1 where
 instance Extractable EU1 where
   extractS (EU1 x) = x
 
+-- Signal data with implicit Euler method.
+
+newtype IEU1 v = IEU1 [v] deriving (Show, Read, Eq, Functor, Applicative)
+
+instance Signal IEU1
+
+instance Integrable IEU1 where
+  integrate dt (IEU1 xs') x0 = let xs = x0 : fmap (\x' -> x0 + dt *> x') xs' in (IEU1 xs, xs !! 10)
+
+instance Extractable IEU1 where
+  extractS (IEU1 xs) = head xs
 
 -- Signal data with Runge-Kutta integration, with instances.
 
@@ -160,6 +174,7 @@ instance Integrable RK4 where
 instance Extractable RK4 where
   extractS = \(RK4 x _ _ _) -> x
 
+
 -- Just a wrapper to make an arrow from "integrate"
 
 integrator :: (Integrable s, VectorSpace.C t a) => a -> Continuous t (s a) (s a)
@@ -173,6 +188,12 @@ sine = proc _ -> do
       y <- integrator 1.0 -< liftA negate x
   returnA -< x
 
+sys1 :: (Signal s, Integrable s) => (Double, Double) -> Continuous Double () (s (Double, Double))
+sys1 (u0, v0) = proc _ -> do
+  rec u <- integrator u0 -< liftA2 (*) u (liftA2 (-) v (pure 2))
+      v <- integrator v0 -< liftA2 (*) v (liftA2 (-) (pure 1) u)
+  returnA -< liftA2 (,) u v
+
 {-
 vdp :: (Signal s, Integrable s) => Continuous Double (s ()) (s Double)
 vdp = proc _ -> do
@@ -183,20 +204,26 @@ vdp = proc _ -> do
 
 -- Run an arrow
 
-runIt :: Double -> Int -> (forall s. (Signal s, Integrable s) => Continuous Double () (s Double)) -> [(Double, Double, Double)]
+runIt :: forall a. Double -> Int -> (forall s. (Signal s, Integrable s) => Continuous Double () (s a)) -> [(Double, [a])]
 runIt step n block =
   let input = repeat ()
-      outputRK = simTrace step input block :: [RK4 Double]
-      outputEU = simTrace step input block :: [EU1 Double]
+      outputRK = simTrace step input block :: [RK4 a]
+      outputEU = simTrace step input block :: [EU1 a]
+      outputIEU = simTrace step input block :: [IEU1 a]
       times = map (* step) [0, 1 ..] :: [Double]
-  in take (succ n) $ zip3 times (map extractS outputEU) (map extractS outputRK)
+  in take (succ n) $ zip times $ transpose [(map extractS outputEU), (map extractS outputRK), (map extractS outputIEU)]
 
 -- Show the results of the run
 
-showIt :: [(Double, Double, Double)] -> String
-showIt = unlines . map (\(d1, d2, d3) -> unwords . map show $ [d1, d2, d3])
+showIt1 :: [(Double, [Double])] -> String
+showIt1 = unlines . map (\(t, xs) -> unwords . map show $ (t : xs))
+
+showIt2 :: [(Double, [(Double, Double)])] -> String
+showIt2 = unlines . map (\(t, uvs) -> unwords . map show $ (t : concat [[u, v] | (u, v) <- uvs]))
 
 -- Do it
 
 main :: IO ()
-main = writeFile "sine.dat" (showIt $ runIt (pi / 10) 10 sine)
+main = do
+  writeFile "sine.dat" (showIt1 $ runIt 0.01 1000 $ sine)
+  writeFile "sys1.dat" (showIt2 $ runIt 0.01 1000 $ sys1 (0.5, 0.6))
