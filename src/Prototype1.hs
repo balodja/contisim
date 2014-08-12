@@ -82,11 +82,11 @@ explicitEuler1 :: Solver t
 explicitEuler1 = Solver $ \dt f a s->
   let (b, s') = f a s in (b, s + dt *> s')
 
-implicitEuler1 :: Solver t
-implicitEuler1 = Solver $ \dt f a s ->
+implicitEuler1 :: Int -> Solver t
+implicitEuler1 n = Solver $ \dt f a s ->
   let (b, x0) = f a s
       xs = x0 : fmap (\x' -> x0 + dt *> x') xs 
-  in (b, s + dt *> (xs !!2))
+  in (b, s + dt *> (xs !! n))
 
 
 
@@ -114,7 +114,6 @@ integrator x0 = Continuous x0 (\a s -> (s, a))
 
 -- Simple sine wave as an example
 
-
 sine :: Continuous Double () Double
 sine = proc _ -> do
   rec x <- integrator 0.0 -< y
@@ -141,7 +140,7 @@ vdp = proc _ -> do
 runIt :: forall a. Double -> Int -> Continuous Double () a -> [(Double, [a])]
 runIt step n block =
   let input = repeat ()
-      outputs = map (\solver -> simTrace solver step input block) [explicitEuler1, rungeKutta4, implicitEuler1]
+      outputs = map (\solver -> simTrace solver step input block) [explicitEuler1, rungeKutta4, implicitEuler1 2]
       times = map (* step) [0, 1 ..] :: [Double]
   in take (succ n) $ zip times $ transpose outputs
 
