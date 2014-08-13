@@ -70,15 +70,18 @@ instance ArrowLoop (Continuous t) where
 
 -- Signals are the things, that can be integrated
 data Integrable s where
-  Integrable :: Applicative s =>
-                (forall t a. VectorSpace.C t a => t -> s a -> a -> (s a, a))
-                -> Integrable s
+  Integrable1 :: Applicative s =>
+                 (forall t a. VectorSpace.C t a => t -> s a -> a -> (s a, a))
+                 -> Integrable s
+  Integrable2 :: Applicative s =>
+                 (forall t a. VectorSpace.C t a => t -> s a -> a -> (s a, a))
+                 -> (forall t a. VectorSpace.C t a => t -> s a -> a -> (s a, a))
+                 -> Integrable s
 
 class Extractable s where
   extractS :: Applicative s => s a -> a
 
 -- Signal data with Euler method integration, and instances for it.
-
 
 newtype EU1 v = EU1 v deriving (Show, Read, Eq)
 
@@ -90,7 +93,7 @@ instance Applicative EU1 where
   (EU1 f) <*> (EU1 x) = EU1 (f x)
 
 euler1 :: Integrable EU1
-euler1 = Integrable $ \dt (EU1 x') x0 ->
+euler1 = Integrable1 $ \dt (EU1 x') x0 ->
   let x = x0 + dt *> x'
   in (EU1 x0, x)
 
@@ -104,7 +107,7 @@ newtype IEU1 v = IEU1 [v] deriving (Show, Read, Eq, Functor, Applicative)
 
 
 implicitEuler1 :: Integrable IEU1
-implicitEuler1 = Integrable $ \dt (IEU1 xs') x0 ->
+implicitEuler1 = Integrable1 $ \dt (IEU1 xs') x0 ->
   let xs = x0 : fmap (\x' -> x0 + dt *> x') xs' in (IEU1 xs, xs !! 2)
 
 instance Extractable IEU1 where
@@ -115,7 +118,7 @@ instance Extractable IEU1 where
 newtype IMEU1 v = IMEU1 [v] deriving (Show, Read, Eq, Functor, Applicative)
 
 implicitMidpointEuler1 :: Integrable IMEU1
-implicitMidpointEuler1 = Integrable $ \dt (IMEU1 xs') x0 ->
+implicitMidpointEuler1 = Integrable1 $ \dt (IMEU1 xs') x0 ->
     let xs = x0 : fmap (\x' -> x0 + (dt / fromRational' 2) *> x') xs'
     in (IMEU1 xs, x0 + dt *> (xs' !! 3))
 
@@ -134,7 +137,7 @@ instance Applicative RK4 where
   (RK4 f1 f2 f3 f4) <*> (RK4 x1 x2 x3 x4) = RK4 (f1 x1) (f2 x2) (f3 x3) (f4 x4)
 
 rungeKutta4 :: Integrable RK4
-rungeKutta4 = Integrable $
+rungeKutta4 = Integrable1 $
               let two = fromRational 2
                   six = fromRational 6
               in \dt (~(RK4 x1' x2' x3' x4')) x0 ->
@@ -144,10 +147,32 @@ rungeKutta4 = Integrable $
 instance Extractable RK4 where
   extractS = \(RK4 x _ _ _) -> x
 
+-- Symplectic euler
+
+newtype SEU1 v = SEU1 [v] deriving (Show, Read, Eq, Functor, Applicative)
+
+symplecticEuler1 :: Integrable SEU1
+symplecticEuler1 =
+  Integrable2
+  (\dt (SEU1 xs') x0 ->
+    let xs = repeat x0 in (SEU1 xs, x0 + dt *> (xs' !! 2)))
+  (\dt (SEU1 xs') x0 ->
+    let xs = x0 : fmap (\x' -> x0 + dt *> x') xs' in (SEU1 xs, xs !! 2))
+
+instance Extractable SEU1 where
+  extractS = \(SEU1 (x : _)) -> x
+
+
 -- Just a wrapper to make an arrow from "integrate"
 
 integrator :: VectorSpace.C t a => Integrable s -> a -> Continuous t (s a) (s a)
-integrator (Integrable integrate) x0 = Continuous x0 integrate
+integrator (Integrable1 integrate) x0 = Continuous x0 integrate
+integrator (Integrable2 integrate _) x0 = Continuous x0 integrate
+
+integrator2 :: VectorSpace.C t a => Integrable s -> a -> Continuous t (s a) (s a)
+integrator2 (Integrable1 integrate) x0 = Continuous x0 integrate
+integrator2 (Integrable2 _ integrate) x0 = Continuous x0 integrate
+
 
 -- Simple sine wave as an example
 
@@ -163,6 +188,12 @@ sys1 i (u0, v0) = proc _ -> do
       v <- integrator i v0 -< liftA2 (*) v (liftA2 (-) (pure 1) u)
   returnA -< liftA2 (,) u v
 
+sys1a :: Applicative s => Integrable s -> (Double, Double) -> Continuous Double () (s (Double, Double))
+sys1a i (u0, v0) = proc _ -> do
+  rec u <- integrator i u0 -< liftA2 (*) u (liftA2 (-) v (pure 2))
+      v <- integrator2 i v0 -< liftA2 (*) v (liftA2 (-) (pure 1) u)
+  returnA -< liftA2 (,) u v
+
 -- Run an arrow
 
 runIt :: Double -> Int -> (forall s. Applicative s => Integrable s -> Continuous Double () (s a)) -> [(Double, [a])]
@@ -171,6 +202,7 @@ runIt step n block =
       outputRK = map extractS $ simTrace step input $ block rungeKutta4
       outputEU = map extractS $ simTrace step input $ block euler1
       outputIEU = map extractS $ simTrace step input $ block implicitEuler1
+      outputSEU = map extractS $ simTrace step input $ block symplecticEuler1
       outputIMEU = map extractS $ simTrace step input $ block implicitMidpointEuler1
       times = map (* step) [0, 1 ..] :: [Double]
   in take (succ n) $ zip times $ transpose [outputEU, outputRK, outputIEU, outputIMEU]
@@ -189,3 +221,4 @@ main :: IO ()
 main = do
   writeFile "sine.dat" (showIt1 $ runIt 0.01 1000 $ sine)
   writeFile "sys1.dat" (showIt2 $ runIt 0.01 1000 $ flip sys1 (0.5, 0.6))
+  writeFile "sys1a.dat" (showIt2 $ runIt 0.01 1000 $ flip sys1a (0.5, 0.6))
