@@ -1,5 +1,5 @@
 {-# LANGUAGE NoImplicitPrelude, BangPatterns, ExistentialQuantification #-}
-{-# LANGUAGE NoImplicitPrelude, Arrows, IncoherentInstances, Rank2Types #-}
+{-# LANGUAGE NoImplicitPrelude, Arrows, Rank2Types #-}
 {-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -7,7 +7,7 @@
 import NumericPrelude
 import Data.List (transpose)
 import Control.Arrow
-import Control.Applicative (Applicative, pure, (<*>), liftA, liftA2)
+import Control.Applicative (Applicative, pure, (<*>), (<$>), liftA, liftA2)
 import qualified Control.Category as Cat
 
 import qualified Algebra.Additive as Additive
@@ -189,11 +189,39 @@ instance Integrable RK4 where
 instance Extractable RK4 where
   extractS = \(RK4 x _ _ _) -> x
 
+-- Signals are the thing, that can be integrated
+
+class Integrable s => Integrable2 s where
+  integrate2 :: VectorSpace.C t a => t -> (s a) -> a -> (s a, a)
+  integrate2 = integrate
+
+instance Integrable2 EU1
+instance Integrable2 IEU1
+instance Integrable2 IMEU1
+instance Integrable2 RK4
+
+newtype SEU1 v = SEU1 [v] deriving (Show, Read, Eq, Functor, Applicative)
+
+instance Signal SEU1
+
+instance Integrable SEU1 where
+  integrate dt (SEU1 xs') x0 =
+     let xs = repeat x0 in (SEU1 xs, x0 + dt *> (xs' !! 2))
+
+instance Integrable2 SEU1 where
+  integrate2 dt (SEU1 xs') x0 =
+     let xs = x0 : fmap (\x' -> x0 + dt *> x') xs' in (SEU1 xs, xs !! 2)
+
+instance Extractable SEU1 where
+  extractS = \(SEU1 (x:_)) -> x
 
 -- Just a wrapper to make an arrow from "integrate"
 
 integrator :: (Integrable s, VectorSpace.C t a) => a -> Continuous t (s a) (s a)
 integrator x0 = Continuous x0 integrate
+
+integrator2 :: (Integrable2 s, VectorSpace.C t a) => a -> Continuous t (s a) (s a)
+integrator2 x0 = Continuous x0 integrate2
 
 -- Simple sine wave as an example
 
@@ -209,25 +237,24 @@ sys1 (u0, v0) = proc _ -> do
       v <- integrator v0 -< liftA2 (*) v (liftA2 (-) (pure 1) u)
   returnA -< liftA2 (,) u v
 
-{-
-vdp :: (Signal s, Integrable s) => Continuous Double (s ()) (s Double)
-vdp = proc _ -> do
-  rec x <- integratorS 0.0 -< x - liftA (/ 3) (x ^ 3) - y
-      y <- integratorS 1.0 -< x
-  returnA -< x
--}
+sys1a :: (Signal s, Integrable2 s) => (Double, Double) -> Continuous Double () (s (Double, Double))
+sys1a (u0, v0) = proc _ -> do
+  rec u <- integrator u0 -< (*) <$> u <*> ((-) <$> v <*> pure 2)
+      v <- integrator2 v0 -< (*) <$> v <*> ((-) <$> pure 1 <*> u)
+  returnA -< (,) <$> u <*> v
 
 -- Run an arrow
 
-runIt :: forall a. Double -> Int -> (forall s. (Signal s, Integrable s) => Continuous Double () (s a)) -> [(Double, [a])]
+runIt :: forall a. Double -> Int -> (forall s. Integrable2 s => Continuous Double () (s a)) -> [(Double, [a])]
 runIt step n block =
   let input = repeat ()
       outputRK = simTrace step input block :: [RK4 a]
       outputEU = simTrace step input block :: [EU1 a]
       outputIEU = simTrace step input block :: [IEU1 a]
       outputIMEU = simTrace step input block :: [IMEU1 a]
+      outputSEU  = simTrace step input block :: [SEU1 a]
       times = map (* step) [0, 1 ..] :: [Double]
-  in take (succ n) $ zip times $ transpose [(map extractS outputEU), (map extractS outputRK), (map extractS outputIEU), (map extractS outputIMEU)]
+  in take (succ n) $ zip times $ transpose [(map extractS outputEU), (map extractS outputRK), (map extractS outputIEU), (map extractS outputIMEU), (map extractS outputSEU)]
 
 -- Show the results of the run
 
@@ -242,4 +269,4 @@ showIt2 = unlines . map (\(t, uvs) -> unwords . map show $ (t : concat [[u, v] |
 main :: IO ()
 main = do
   writeFile "sine.dat" (showIt1 $ runIt 0.01 1000 $ sine)
-  writeFile "sys1.dat" (showIt2 $ runIt 0.01 1000 $ sys1 (0.5, 0.6))
+  writeFile "sys1.dat" (showIt2 $ runIt 0.01 1000 $ sys1a (0.5, 0.6))
