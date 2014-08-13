@@ -205,7 +205,7 @@ runIt step n block =
       outputSEU = map extractS $ simTrace step input $ block symplecticEuler1
       outputIMEU = map extractS $ simTrace step input $ block implicitMidpointEuler1
       times = map (* step) [0, 1 ..] :: [Double]
-  in take (succ n) $ zip times $ transpose [outputEU, outputRK, outputIEU, outputIMEU]
+  in take (succ n) $ zip times $ transpose [outputEU, outputRK, outputIEU, outputIMEU, outputSEU]
 
 -- Show the results of the run
 
