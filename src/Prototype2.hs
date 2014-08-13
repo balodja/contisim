@@ -4,6 +4,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE KindSignatures #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing -fno-warn-orphans #-}
 import NumericPrelude
 import Data.List (transpose)
@@ -63,10 +64,10 @@ instance ArrowLoop (Continuous t) where
     let (!(y, r), s') = f dt (x, r) s
     in (y, s')
 
-
 -- Signals are datatypes to represent current signal value
 -- with some extra possibilities (e.g. first-second order derivatives)
 --type Signal = Applicative
+class Signal (s :: * -> *)
 
 -- Signals are the things, that can be integrated
 data Integrable s where
@@ -77,10 +78,36 @@ data Integrable s where
 class Extractable s where
   extractS :: Applicative s => s a -> a
 
+
+instance (Applicative s, Signal s, Additive.C a) => Additive.C (s a) where
+  zero = pure zero
+  negate = liftA negate
+  (+) = liftA2 (+)
+  (-) = liftA2 (-)
+
+instance (Applicative s, Signal s, Ring.C a) => Ring.C (s a) where
+  (*) = liftA2 (*)
+  one = pure one
+  fromInteger = pure . fromInteger
+
+instance (Applicative s, Signal s, Field.C a) => Field.C (s a) where
+  (/) = liftA2 (/)
+  recip = liftA recip
+  fromRational' = pure . fromRational'
+  (^-) x p = liftA (^- p) x
+
+instance (Applicative s, Signal s, Module.C a v) => Module.C (s a) (s v) where
+  (*>) = liftA2 (*>)
+
+instance (Applicative s, Signal s, Algebraic.C a) => Algebraic.C (s a) where
+  sqrt = liftA sqrt
+  root x = liftA (Algebraic.root x)
+  (^/) x p = liftA (^/ p) x
 -- Signal data with Euler method integration, and instances for it.
 
 
 newtype EU1 v = EU1 v deriving (Show, Read, Eq)
+instance Signal EU1
 
 instance Functor EU1 where
   fmap f (EU1 x) = EU1 (f x)
@@ -101,6 +128,7 @@ instance Extractable EU1 where
 -- Signal data with implicit Euler method.
 
 newtype IEU1 v = IEU1 [v] deriving (Show, Read, Eq, Functor, Applicative)
+instance Signal IEU1
 
 
 implicitEuler1 :: Integrable IEU1
@@ -113,6 +141,7 @@ instance Extractable IEU1 where
 -- Signal data with implicit Euler method.
 
 newtype IMEU1 v = IMEU1 [v] deriving (Show, Read, Eq, Functor, Applicative)
+instance Signal IMEU1
 
 implicitMidpointEuler1 :: Integrable IMEU1
 implicitMidpointEuler1 = Integrable $ \dt (IMEU1 xs') x0 ->
@@ -125,6 +154,7 @@ instance Extractable IMEU1 where
 -- Signal data with Runge-Kutta integration, with instances.
 
 data RK4 v = RK4 !v v v v deriving (Show, Read, Eq)
+instance Signal RK4
 
 instance Functor RK4 where
   fmap f (RK4 x1 x2 x3 x4) = RK4 (f x1) (f x2) (f x3) (f x4)
@@ -151,21 +181,21 @@ integrator (Integrable integrate) x0 = Continuous x0 integrate
 
 -- Simple sine wave as an example
 
-sine :: Applicative s => Integrable s -> Continuous Double () (s Double)
+sine :: (Additive.C (s Double), Applicative s) => Integrable s -> Continuous Double () (s Double)
 sine i = proc _ -> do
   rec x <- integrator i 0.0 -< y
-      y <- integrator i 1.0 -< liftA negate x
+      y <- integrator i 1.0 -< negate x -- liftA negate x
   returnA -< x
 
-sys1 :: Applicative s => Integrable s -> (Double, Double) -> Continuous Double () (s (Double, Double))
+sys1 :: (Ring.C (s Double), Applicative s) => Integrable s -> (Double, Double) -> Continuous Double () (s (Double, Double))
 sys1 i (u0, v0) = proc _ -> do
-  rec u <- integrator i u0 -< liftA2 (*) u (liftA2 (-) v (pure 2))
-      v <- integrator i v0 -< liftA2 (*) v (liftA2 (-) (pure 1) u)
+  rec u <- integrator i u0 -< u * (v - fromInteger 2)
+      v <- integrator i v0 -< v * (u - fromInteger 1)
   returnA -< liftA2 (,) u v
 
 -- Run an arrow
 
-runIt :: Double -> Int -> (forall s. Applicative s => Integrable s -> Continuous Double () (s a)) -> [(Double, [a])]
+runIt :: Double -> Int -> (forall s. (Ring.C (s Double), Additive.C (s Double), Applicative s) => Integrable s -> Continuous Double () (s a)) -> [(Double, [a])]
 runIt step n block =
   let input = repeat ()
       outputRK = map extractS $ simTrace step input $ block rungeKutta4
