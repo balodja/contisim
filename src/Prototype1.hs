@@ -155,13 +155,13 @@ merge f g = proc _ -> do
       y <- g -< x
   returnA -< (x,y)
 
-sys1a :: (Double, Double) -> Continuous Double Double Double
-sys1a (u0, v0) = proc v -> do
+sys1a :: Double -> Continuous Double Double Double
+sys1a u0  = proc v -> do
   rec u <- integrator u0 -< u * (v - 2)
   returnA -< u
 
-sys1b :: (Double, Double) -> Continuous Double Double Double
-sys1b (u0, v0) = proc u -> do
+sys1b :: Double -> Continuous Double Double Double
+sys1b v0 = proc u -> do
   rec v <- integrator v0 -< v * (1 - u)
   returnA -< v
 
@@ -197,4 +197,4 @@ main :: IO ()
 main = do
   writeFile "sine.dat" (showIt1 $ runIt 0.01 1000 $ sine)
   writeFile "sys1.dat" (showIt2 $ runIt 0.01 1000 $ sys1 (0.5, 0.6))
-  print $ (simTraceSym (symplecticEuler1 2) 0.01 (replicate 1000 ()) (sys1a (0.5, 0.6)) (sys1b (0.5,0.6)):: [(Double,Double)])
+  print $ (simTraceSym (symplecticEuler1 2) 0.01 (replicate 1000 ()) (sys1a 0.5) (sys1b 0.6):: [(Double,Double)])
