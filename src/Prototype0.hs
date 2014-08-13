@@ -71,6 +71,8 @@ class Applicative s => Signal s
 -- Signals are the thing, that can be integrated
 class Signal s => Integrable s where
   integrate :: VectorSpace.C t a => t -> (s a) -> a -> (s a, a)
+  integrate2 :: VectorSpace.C t a => t -> (s a) -> a -> (s a, a)
+  integrate2 = integrate
 
 -- Extract current value of the signal
 class Signal s => Extractable s where
@@ -191,10 +193,7 @@ instance Extractable RK4 where
 
 -- Signals are the thing, that can be integrated
 
-class Integrable s => Integrable2 s where
-  integrate2 :: VectorSpace.C t a => t -> (s a) -> a -> (s a, a)
-  integrate2 = integrate
-
+class Integrable s => Integrable2 s
 instance Integrable2 EU1
 instance Integrable2 IEU1
 instance Integrable2 IMEU1
@@ -208,7 +207,6 @@ instance Integrable SEU1 where
   integrate dt (SEU1 xs') x0 =
      let xs = repeat x0 in (SEU1 xs, x0 + dt *> (xs' !! 2))
 
-instance Integrable2 SEU1 where
   integrate2 dt (SEU1 xs') x0 =
      let xs = x0 : fmap (\x' -> x0 + dt *> x') xs' in (SEU1 xs, xs !! 2)
 
@@ -220,7 +218,7 @@ instance Extractable SEU1 where
 integrator :: (Integrable s, VectorSpace.C t a) => a -> Continuous t (s a) (s a)
 integrator x0 = Continuous x0 integrate
 
-integrator2 :: (Integrable2 s, VectorSpace.C t a) => a -> Continuous t (s a) (s a)
+integrator2 :: (Integrable s, VectorSpace.C t a) => a -> Continuous t (s a) (s a)
 integrator2 x0 = Continuous x0 integrate2
 
 -- Simple sine wave as an example
@@ -237,7 +235,7 @@ sys1 (u0, v0) = proc _ -> do
       v <- integrator v0 -< liftA2 (*) v (liftA2 (-) (pure 1) u)
   returnA -< liftA2 (,) u v
 
-sys1a :: (Signal s, Integrable2 s) => (Double, Double) -> Continuous Double () (s (Double, Double))
+sys1a :: (Signal s, Integrable s) => (Double, Double) -> Continuous Double () (s (Double, Double))
 sys1a (u0, v0) = proc _ -> do
   rec u <- integrator u0 -< (*) <$> u <*> ((-) <$> v <*> pure 2)
       v <- integrator2 v0 -< (*) <$> v <*> ((-) <$> pure 1 <*> u)
@@ -245,7 +243,7 @@ sys1a (u0, v0) = proc _ -> do
 
 -- Run an arrow
 
-runIt :: forall a. Double -> Int -> (forall s. Integrable2 s => Continuous Double () (s a)) -> [(Double, [a])]
+runIt :: forall a. Double -> Int -> (forall s. Integrable s => Continuous Double () (s a)) -> [(Double, [a])]
 runIt step n block =
   let input = repeat ()
       outputRK = simTrace step input block :: [RK4 a]
@@ -269,4 +267,5 @@ showIt2 = unlines . map (\(t, uvs) -> unwords . map show $ (t : concat [[u, v] |
 main :: IO ()
 main = do
   writeFile "sine.dat" (showIt1 $ runIt 0.01 1000 $ sine)
-  writeFile "sys1.dat" (showIt2 $ runIt 0.01 1000 $ sys1a (0.5, 0.6))
+  writeFile "sys1.dat" (showIt2 $ runIt 0.01 1000 $ sys1 (0.5, 0.6))
+  writeFile "sys1a.dat" (showIt2 $ runIt 0.01 1000 $ sys1a (0.5, 0.6))
