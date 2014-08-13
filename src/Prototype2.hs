@@ -4,7 +4,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE KindSignatures #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing -fno-warn-orphans #-}
 import NumericPrelude
 import Data.List (transpose)
@@ -67,7 +66,7 @@ instance ArrowLoop (Continuous t) where
 -- Signals are datatypes to represent current signal value
 -- with some extra possibilities (e.g. first-second order derivatives)
 --type Signal = Applicative
-class Signal (s :: * -> *)
+class Applicative s => Signal s
 
 -- Signals are the things, that can be integrated
 data Integrable s where
@@ -83,27 +82,27 @@ class Extractable s where
   extractS :: Applicative s => s a -> a
 
 
-instance (Applicative s, Signal s, Additive.C a) => Additive.C (s a) where
+instance (Signal s, Additive.C a) => Additive.C (s a) where
   zero = pure zero
   negate = liftA negate
   (+) = liftA2 (+)
   (-) = liftA2 (-)
 
-instance (Applicative s, Signal s, Ring.C a) => Ring.C (s a) where
+instance (Signal s, Ring.C a) => Ring.C (s a) where
   (*) = liftA2 (*)
   one = pure one
   fromInteger = pure . fromInteger
 
-instance (Applicative s, Signal s, Field.C a) => Field.C (s a) where
+instance (Signal s, Field.C a) => Field.C (s a) where
   (/) = liftA2 (/)
   recip = liftA recip
   fromRational' = pure . fromRational'
   (^-) x p = liftA (^- p) x
 
-instance (Applicative s, Signal s, Module.C a v) => Module.C (s a) (s v) where
+instance (Signal s, Module.C a v) => Module.C (s a) (s v) where
   (*>) = liftA2 (*>)
 
-instance (Applicative s, Signal s, Algebraic.C a) => Algebraic.C (s a) where
+instance (Signal s, Algebraic.C a) => Algebraic.C (s a) where
   sqrt = liftA sqrt
   root x = liftA (Algebraic.root x)
   (^/) x p = liftA (^/ p) x
@@ -180,6 +179,7 @@ instance Extractable RK4 where
 -- Symplectic euler
 
 newtype SEU1 v = SEU1 [v] deriving (Show, Read, Eq, Functor, Applicative)
+instance Signal SEU1
 
 symplecticEuler1 :: Integrable SEU1
 symplecticEuler1 =
@@ -206,19 +206,19 @@ integrator2 (Integrable2 _ integrate) x0 = Continuous x0 integrate
 
 -- Simple sine wave as an example
 
-sine :: (Additive.C (s Double), Applicative s) => Integrable s -> Continuous Double () (s Double)
+sine :: (Additive.C (s Double), Signal s) => Integrable s -> Continuous Double () (s Double)
 sine i = proc _ -> do
   rec x <- integrator i 0.0 -< y
       y <- integrator i 1.0 -< negate x -- liftA negate x
   returnA -< x
 
-sys1 :: (Ring.C (s Double), Applicative s) => Integrable s -> (Double, Double) -> Continuous Double () (s (Double, Double))
+sys1 :: (Ring.C (s Double), Signal s) => Integrable s -> (Double, Double) -> Continuous Double () (s (Double, Double))
 sys1 i (u0, v0) = proc _ -> do
   rec u <- integrator i u0 -< u * (v - fromInteger 2)
       v <- integrator i v0 -< v * (u - fromInteger 1)
   returnA -< liftA2 (,) u v
 
-sys1a :: Applicative s => Integrable s -> (Double, Double) -> Continuous Double () (s (Double, Double))
+sys1a :: Signal s => Integrable s -> (Double, Double) -> Continuous Double () (s (Double, Double))
 sys1a i (u0, v0) = proc _ -> do
   rec u <- integrator i u0 -< liftA2 (*) u (liftA2 (-) v (pure 2))
       v <- integrator2 i v0 -< liftA2 (*) v (liftA2 (-) (pure 1) u)
@@ -226,7 +226,7 @@ sys1a i (u0, v0) = proc _ -> do
 
 -- Run an arrow
 
-runIt :: Double -> Int -> (forall s. (Ring.C (s Double), Additive.C (s Double), Applicative s) => Integrable s -> Continuous Double () (s a)) -> [(Double, [a])]
+runIt :: Double -> Int -> (forall s. (Ring.C (s Double), Additive.C (s Double), Signal s) => Integrable s -> Continuous Double () (s a)) -> [(Double, [a])]
 runIt step n block =
   let input = repeat ()
       outputRK = map extractS $ simTrace step input $ block rungeKutta4
