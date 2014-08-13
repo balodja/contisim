@@ -183,6 +183,12 @@ runIt step n block =
       times = map (* step) [0, 1 ..] :: [Double]
   in take (succ n) $ zip times $ transpose outputs
 
+runItS :: forall a. Double -> Int -> Continuous Double a a -> Continuous Double a a -> [(Double, a, a)]
+runItS step n bl br =
+  let input = repeat ()
+      outputs = simTraceSym (symplecticEuler1 2) step input bl br :: [(a, a)]
+      times = map (* step) [0, 1 ..] :: [Double]
+  in take (succ n) $ zipWith (\x (a,b) -> (x,a,b)) times outputs
 -- Show the results of the run
 
 showIt1 :: [(Double, [Double])] -> String
@@ -191,10 +197,12 @@ showIt1 = unlines . map (\(t, xs) -> unwords . map show $ (t : xs))
 showIt2 :: [(Double, [(Double, Double)])] -> String
 showIt2 = unlines . map (\(t, uvs) -> unwords . map show $ (t : concat [[u, v] | (u, v) <- uvs]))
 
+showIt3 :: [(Double, Double, Double)] -> String
+showIt3 = unlines . map (\(x,y,z) -> unwords [show x,show y,show z])
 -- Do it
 
 main :: IO ()
 main = do
   writeFile "sine.dat" (showIt1 $ runIt 0.01 1000 $ sine)
   writeFile "sys1.dat" (showIt2 $ runIt 0.01 1000 $ sys1 (0.5, 0.6))
-  print $ (simTraceSym (symplecticEuler1 2) 0.01 (replicate 1000 ()) (sys1a 0.5) (sys1b 0.6):: [(Double,Double)])
+  writeFile "sys2.dat" (showIt3 $ runItS 0.01 1000 (sys1a 0.5) (sys1b  0.6))
