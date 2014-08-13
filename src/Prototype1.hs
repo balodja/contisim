@@ -24,8 +24,9 @@ data Continuous t a b = forall s. VectorSpace.C t s => Continuous !s (a -> s -> 
 
 newtype Solver t = Solver (forall a b s. VectorSpace.C t s => t -> (a -> s -> (b, s)) -> a -> s -> (b, s))
 
-data SymplecticSolver t = SymplecticSolver (forall a b s. VectorSpace.C t s => t -> (a -> s -> (b, s)) -> a -> s -> (b,s))
-                                           (forall a c s. VectorSpace.C t s => t -> (a -> s -> (c, s)) -> a -> s -> (c,s))
+data SymplecticSolver t = SymplecticSolver
+  (forall a b s. VectorSpace.C t s => ((t -> (a -> s -> (b, s)) -> a -> s -> (b,s))))
+  (forall a b s. VectorSpace.C t s => ((t -> (a -> s -> (b, s)) -> a -> s -> (b,s))))
 
 simStep :: Solver t -> t -> a -> Continuous t a b -> (b, Continuous t a b)
 simStep (Solver solver) dt a (Continuous s f) =
@@ -37,13 +38,13 @@ simTrace slv dt (x:xs) f = let !(y, f') = simStep slv dt x f
                            in y `seq` (y : simTrace slv dt xs f')
 simTrace _ _ [] _ = []
 
-simStepSym :: SymplecticSolver t -> t -> a -> Continuous t a b -> Continuous t a b -> ((b,b), (Continuous t a b, Continuous t a b))
+simStepSym :: SymplecticSolver t -> t -> a -> Continuous t b b -> Continuous t b b -> ((b,b), (Continuous t b b, Continuous t b b))
 simStepSym (SymplecticSolver l r) dt a (Continuous sl f) (Continuous sr g) =
-  let !(bl, sl') = l dt f a sl
-      !(br, sr') = r dt g a sr
+  let (bl, sl') = l dt f br sl
+      (br, sr') = r dt g bl sr
   in ((bl,br), (Continuous sl' f,Continuous sr' g))
 
-simTraceSym :: SymplecticSolver t -> t -> [a] -> (Continuous t a b) -> (Continuous t a b) -> [(b,b)]
+simTraceSym :: SymplecticSolver t -> t -> [a] -> (Continuous t b b) -> (Continuous t b b) -> [(b,b)]
 simTraceSym slv dt (x:xs) f g =
   let !(y, (f',g')) = simStepSym slv dt x f g
   in y `seq` (y : simTraceSym slv dt xs f' g')
@@ -110,7 +111,6 @@ symplecticEuler1 n = SymplecticSolver
                     xs = x0 : fmap (\x' -> x0 + dt *> x') xs 
                 in (b, s + dt *> (xs !! n)))
 
-
 {-
 instance Integrable IEU1 where
   integrate dt (IEU1 xs') x0 =
@@ -146,17 +146,25 @@ sys1 (u0, v0) = proc _ -> do
       v <- integrator v0 -< v * (1 - u)
   returnA -< (u, v)
 
-sys1a :: (Double, Double) -> Continuous Double () Double
-sys1a (u0, v0) = proc _ -> do
+
+merge :: Continuous Double Double Double
+      -> Continuous Double Double Double
+      -> Continuous Double () (Double,Double)
+merge f g = proc _ -> do
+  rec x <- f -< y
+      y <- g -< x
+  returnA -< (x,y)
+
+sys1a :: (Double, Double) -> Continuous Double Double Double
+sys1a (u0, v0) = proc v -> do
   rec u <- integrator u0 -< u * (v - 2)
-      v <- integrator v0 -< v * (1 - u)
   returnA -< u
 
-sys1b :: (Double, Double) -> Continuous Double () Double
-sys1b (u0, v0) = proc _ -> do
-  rec u <- integrator u0 -< u * (v - 2)
-      v <- integrator v0 -< v * (1 - u)
+sys1b :: (Double, Double) -> Continuous Double Double Double
+sys1b (u0, v0) = proc u -> do
+  rec v <- integrator v0 -< v * (1 - u)
   returnA -< v
+
 {-
 vdp :: (Signal s, Integrable s) => Continuous Double (s ()) (s Double)
 vdp = proc _ -> do
@@ -189,4 +197,4 @@ main :: IO ()
 main = do
   writeFile "sine.dat" (showIt1 $ runIt 0.01 1000 $ sine)
   writeFile "sys1.dat" (showIt2 $ runIt 0.01 1000 $ sys1 (0.5, 0.6))
-  print $ simTraceSym (symplecticEuler1 2) 0.01 (replicate 1000 ()) (sys1a (0.5, 0.6)) (sys1b (0.5,0.6))
+  print $ (simTraceSym (symplecticEuler1 2) 0.01 (replicate 1000 ()) (sys1a (0.5, 0.6)) (sys1b (0.5,0.6)):: [(Double,Double)])
