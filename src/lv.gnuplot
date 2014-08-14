@@ -25,11 +25,13 @@ reset
 set xrange [0.1:5]
 set yrange [0.1:7]
 #unset key
-p 'test.dat' with image, 'cont.dat' w l lt -1 lw 1,\
+p 'cont.dat' w l lt -1 lw 1,\
   'sys1.dat' using 2:3 with line title 'Integrated by Euler method' linecolor 1,\
   'sys1.dat' using 4:5 with line title 'Integrated by Runge-Kutta method' linecolor 2, \
   'sys1.dat' using 6:7 with line title 'Integrated by Implicit Euler method' linecolor 3, \
-# 'sys1.dat' using 8:9 with line title 'Integrated by Implicit Midpoint Rule' linecolor 4
-
+  'sys2.dat' using 2:3 with line title 'Integrated by Symplectic Euler method' linecolor 4
+#p 'test.dat' with image, 'cont.dat' w l lt -1 lw 1,\
+#  'sys2.dat' using 2:3 with line title 'Integrated by Symplectic Euler method' linecolor 4
+#
 # 'lv.dat' using 2:3 with points notitle linecolor 1,\
 #  'lv.dat' using 4:5 with points notitle linecolor 2,\
